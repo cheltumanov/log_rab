@@ -1,20 +1,30 @@
+import os
 import datetime
-from typing import List, Dict, Optional, Set, Deque
+from typing import Dict, List, Optional, Deque, Set
 from collections import deque, defaultdict
 from abc import ABC, abstractmethod
+import telebot
+from telebot import types
+from dotenv import load_dotenv
 
+# Загрузка переменных окружения
+load_dotenv()
+API_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
+# Инициализация бота
+bot = telebot.TeleBot(API_TOKEN)
+
+# Классы предметной области
 class Entity(ABC):
     """Абстрактный базовый класс для всех сущностей"""
     @abstractmethod
-    def display_info(self):
+    def display_info(self) -> str:
         """Абстрактный метод для отображения информации о сущности"""
         pass
 
 
 class Guest(Entity):
     """Класс для представления гостя отеля"""
-    # Статическое поле для хранения всех использованных паспортных данных
     _used_passports: Set[str] = set()
     
     def __init__(self, guest_id: int, name: str, passport: str, phone: str):
@@ -24,53 +34,33 @@ class Guest(Entity):
         self.phone = phone
         self.bookings: List['Booking'] = []
         
-        # Проверка уникальности паспорта
         if passport in Guest._used_passports:
             raise ValueError("Гость с таким паспортом уже зарегистрирован")
         Guest._used_passports.add(passport)
     
     def add_booking(self, booking: 'Booking'):
-        """Добавить бронирование для гостя"""
         self.bookings.append(booking)
     
     def remove_booking(self, booking: 'Booking'):
-        """Удалить бронирование гостя"""
         self.bookings.remove(booking)
     
     def get_active_bookings(self) -> List['Booking']:
-        """Получить активные бронирования"""
         today = datetime.date.today()
         return [b for b in self.bookings if b.end_date >= today]
     
-    def display_info(self):
-        """Реализация абстрактного метода"""
-        print(f"Гость #{self.guest_id}: {self.name}, паспорт: {self.passport}, телефон: {self.phone}")
+    def display_info(self) -> str:
+        return (f"🏷 Гость #{self.guest_id}\n"
+                f"👤 Имя: {self.name}\n"
+                f"📄 Паспорт: {self.passport}\n"
+                f"📞 Телефон: {self.phone}\n"
+                f"🔢 Активных броней: {len(self.get_active_bookings())}")
     
     def __str__(self):
-        return f"Гость #{self.guest_id}: {self.name}"
-    
-    def __eq__(self, other):
-        """Перегрузка оператора равенства"""
-        if not isinstance(other, Guest):
-            return False
-        return self.passport == other.passport
-    
-    def __lt__(self, other):
-        """Перегрузка оператора меньше (для сортировки)"""
-        return self.name < other.name
-    
-    def __add__(self, nights: int):
-        """Перегрузка оператора + для добавления дней к последнему бронированию"""
-        if not self.bookings:
-            raise ValueError("У гостя нет бронирований")
-        last_booking = self.bookings[-1]
-        last_booking.end_date += datetime.timedelta(days=nights)
-        return self
+        return f"👤 #{self.guest_id} {self.name}"
 
 
 class Capsule(Entity):
     """Класс для представления капсулы в отеле"""
-    # Статические поля для типов капсул и их базовых цен
     TYPE_STANDARD = "Стандарт"
     TYPE_LUX = "Люкс"
     TYPE_PREMIUM = "Премиум"
@@ -89,58 +79,38 @@ class Capsule(Entity):
         self.current_booking: Optional['Booking'] = None
     
     def _calculate_price(self) -> float:
-        """Рассчитать цену с учетом типа капсулы"""
         base_price = self.BASE_PRICES.get(self.type, 1000)
-        # Добавляем случайное отклонение до 10% для динамического ценообразования
         import random
         return base_price * (1 + random.uniform(-0.1, 0.1))
     
     @staticmethod
     def get_available_types() -> List[str]:
-        """Статический метод для получения доступных типов капсул"""
         return list(Capsule.BASE_PRICES.keys())
     
     def book(self, booking: 'Booking'):
-        """Забронировать капсулу"""
         if not self.is_available:
             raise ValueError("Капсула уже занята")
         self.is_available = False
         self.current_booking = booking
     
     def release(self):
-        """Освободить капсулу"""
         self.is_available = True
         self.current_booking = None
     
-    def display_info(self):
-        """Реализация абстрактного метода"""
-        status = "доступна" if self.is_available else "занята"
-        print(f"Капсула #{self.capsule_id} ({self.type}), {status}, цена за ночь: {self.price_per_night:.2f}")
+    def display_info(self) -> str:
+        status = "🟢 Доступна" if self.is_available else "🔴 Занята"
+        return (f"🚪 Капсула #{self.capsule_id}\n"
+                f"🏷 Тип: {self.type}\n"
+                f"💰 Цена за ночь: {self.price_per_night:.2f} руб.\n"
+                f"📌 Статус: {status}")
     
     def __str__(self):
-        status = "доступна" if self.is_available else "занята"
-        return f"Капсула #{self.capsule_id} ({self.type}), {status}"
-    
-    def __eq__(self, other):
-        """Перегрузка оператора равенства"""
-        if not isinstance(other, Capsule):
-            return False
-        return self.capsule_id == other.capsule_id
-    
-    def __lt__(self, other):
-        """Перегрузка оператора меньше (для сортировки)"""
-        return self.price_per_night < other.price_per_night
-    
-    def __contains__(self, date: datetime.date):
-        """Перегрузка оператора in для проверки доступности на дату"""
-        if self.is_available:
-            return True
-        return not (self.current_booking.start_date <= date <= self.current_booking.end_date)
+        status = "🟢" if self.is_available else "🔴"
+        return f"{status} Капсула #{self.capsule_id} ({self.type}) - {self.price_per_night:.2f} руб./ночь"
 
 
 class Booking(Entity):
     """Класс для представления бронирования"""
-    # Статическое поле для хранения истории всех бронирований
     _booking_history: Deque['Booking'] = deque(maxlen=1000)
     
     def __init__(self, booking_id: int, guest: Guest, capsule: Capsule, 
@@ -161,7 +131,6 @@ class Booking(Entity):
         Booking._booking_history.append(self)
     
     def _validate_dates(self):
-        """Проверка корректности дат"""
         today = datetime.date.today()
         if self.start_date < today:
             raise ValueError("Дата заезда не может быть в прошлом")
@@ -170,54 +139,32 @@ class Booking(Entity):
     
     @classmethod
     def get_recent_bookings(cls, count: int = 5) -> List['Booking']:
-        """Получить последние бронирования"""
         return list(cls._booking_history)[-count:]
     
     def calculate_total(self) -> float:
-        """Рассчитать общую стоимость бронирования"""
         nights = (self.end_date - self.start_date).days
         return nights * self.capsule.price_per_night
     
     def mark_as_paid(self):
-        """Пометить бронирование как оплаченное"""
         self.is_paid = True
     
     def cancel(self):
-        """Отменить бронирование"""
         self.capsule.release()
         self.guest.remove_booking(self)
     
-    def display_info(self):
-        """Реализация абстрактного метода"""
-        paid_status = "оплачено" if self.is_paid else "не оплачено"
-        print(f"Бронирование #{self.booking_id}:")
-        print(f"Гость: {self.guest.name}")
-        print(f"Капсула: {self.capsule.type} (#{self.capsule.capsule_id})")
-        print(f"Период: {self.start_date} - {self.end_date}")
-        print(f"Статус оплаты: {paid_status}")
-        print(f"Общая стоимость: {self.calculate_total():.2f} руб.")
+    def display_info(self) -> str:
+        paid_status = "✅ Оплачено" if self.is_paid else "❌ Не оплачено"
+        return (f"📝 Бронирование #{self.booking_id}\n"
+                f"👤 Гость: {self.guest.name} (#{self.guest.guest_id})\n"
+                f"🚪 Капсула: {self.capsule.type} (#{self.capsule.capsule_id})\n"
+                f"📅 Период: {self.start_date} - {self.end_date}\n"
+                f"💰 Сумма: {self.calculate_total():.2f} руб.\n"
+                f"📌 Статус оплаты: {paid_status}")
     
     def __str__(self):
-        paid_status = "оплачено" if self.is_paid else "не оплачено"
-        return (f"Бронирование #{self.booking_id}: {self.guest.name} в капсуле #{self.capsule.capsule_id} "
-                f"с {self.start_date} по {self.end_date}, {paid_status}")
-    
-    def __eq__(self, other):
-        """Перегрузка оператора равенства"""
-        if not isinstance(other, Booking):
-            return False
-        return (self.guest == other.guest and 
-                self.capsule == other.capsule and 
-                self.start_date == other.start_date)
-    
-    def __lt__(self, other):
-        """Перегрузка оператора меньше (для сортировки)"""
-        return self.start_date < other.start_date
-    
-    def __add__(self, days: int):
-        """Перегрузка оператора + для продления бронирования"""
-        self.end_date += datetime.timedelta(days=days)
-        return self
+        paid_status = "✅" if self.is_paid else "❌"
+        return (f"{paid_status} Бронь #{self.booking_id}: {self.guest.name} "
+                f"в капсуле #{self.capsule.capsule_id} ({self.start_date} - {self.end_date})")
 
 
 class Hotel:
@@ -233,28 +180,22 @@ class Hotel:
         self._initialize_sample_data()
     
     def _initialize_sample_data(self):
-        """Инициализировать тестовые данные"""
-        # Добавляем капсулы разных типов
         for _ in range(3):
             self.add_capsule(Capsule.TYPE_STANDARD)
         for _ in range(2):
             self.add_capsule(Capsule.TYPE_LUX)
         self.add_capsule(Capsule.TYPE_PREMIUM)
         
-        # Регистрируем гостей
         self.register_guest("Иван Иванов", "1234567890", "+79123456789")
         self.register_guest("Петр Петров", "0987654321", "+79098765432")
     
     def add_capsule(self, capsule_type: str) -> Capsule:
-        """Добавить капсулу в отель"""
         capsule = Capsule(self._next_capsule_id, capsule_type)
         self.capsules[self._next_capsule_id] = capsule
         self._next_capsule_id += 1
         return capsule
     
     def register_guest(self, name: str, passport: str, phone: str) -> Guest:
-        """Зарегистрировать гостя"""
-        # Обработка строк - нормализация имени
         name = ' '.join(part.capitalize() for part in name.split())
         
         guest = Guest(self._next_guest_id, name, passport, phone)
@@ -264,7 +205,6 @@ class Hotel:
     
     def create_booking(self, guest_id: int, capsule_id: int, 
                       start_date: datetime.date, end_date: datetime.date) -> Booking:
-        """Создать бронирование"""
         if guest_id not in self.guests:
             raise ValueError("Гость не найден")
         if capsule_id not in self.capsules:
@@ -279,18 +219,17 @@ class Hotel:
         return booking
     
     def get_available_capsules(self, date: Optional[datetime.date] = None) -> List[Capsule]:
-        """Получить список доступных капсул на конкретную дату"""
         if date is None:
             date = datetime.date.today()
         
         available = []
         for capsule in self.capsules.values():
-            if date in capsule:
+            if capsule.is_available or (capsule.current_booking and 
+                                       not (capsule.current_booking.start_date <= date <= capsule.current_booking.end_date)):
                 available.append(capsule)
         return available
     
     def check_out(self, booking_id: int):
-        """Выселить гостя (освободить капсулу)"""
         if booking_id not in self.bookings:
             raise ValueError("Бронирование не найдено")
         
@@ -298,192 +237,269 @@ class Hotel:
         booking.cancel()
         del self.bookings[booking_id]
     
-    def get_guest_statistics(self) -> Dict[str, int]:
-        """Получить статистику по гостям"""
-        stats = defaultdict(int)
+    def get_guest_statistics(self) -> Dict[str, float]:
+        stats = defaultdict(float)
         for booking in self.bookings.values():
             stats[booking.guest.name] += booking.calculate_total()
         return stats
-    
-    def __str__(self):
-        return (f"Отель '{self.name}': {len(self.guests)} гостей, "
-                f"{len(self.capsules)} капсул, {len(self.bookings)} активных бронирований")
-    
-    def __contains__(self, guest_name: str):
-        """Перегрузка оператора in для проверки наличия гостя"""
-        return any(guest.name == guest_name for guest in self.guests.values())
-    
-    def __getitem__(self, key):
-        """Перегрузка оператора [] для доступа к объектам"""
-        if isinstance(key, int):
-            if key in self.guests:
-                return self.guests[key]
-            if key in self.capsules:
-                return self.capsules[key]
-            if key in self.bookings:
-                return self.bookings[key]
-            raise KeyError("Объект с таким ID не найден")
-        elif isinstance(key, str):
-            # Поиск по имени гостя
-            for guest in self.guests.values():
-                if guest.name == key:
-                    return guest
-            raise KeyError("Гость с таким именем не найден")
-        else:
-            raise TypeError("Неверный тип ключа")
 
 
-class HotelBot:
-    """Класс для управления отелем через бота"""
-    def __init__(self, hotel_name: str):
-        self.hotel = Hotel(hotel_name)
-    
-    def show_menu(self):
-        """Показать меню бота"""
-        print("\nМеню управления капсульным отелем:")
-        print("1. Показать все капсулы")
-        print("2. Показать доступные капсулы")
-        print("3. Зарегистрировать нового гостя")
-        print("4. Создать бронирование")
-        print("5. Показать все бронирования")
-        print("6. Выселить гостя (освободить капсулу)")
-        print("7. Показать информацию об отеле")
-        print("8. Показать статистику по гостям")
-        print("9. Показать последние бронирования")
-        print("0. Выход")
-    
-    def run(self):
-        """Запустить бота"""
-        print(f"Добро пожаловать в систему управления отелем '{self.hotel.name}'!")
-        
-        while True:
-            self.show_menu()
-            choice = input("Выберите действие: ")
-            
-            try:
-                if choice == "1":
-                    self._show_all_capsules()
-                elif choice == "2":
-                    self._show_available_capsules()
-                elif choice == "3":
-                    self._register_guest()
-                elif choice == "4":
-                    self._create_booking()
-                elif choice == "5":
-                    self._show_all_bookings()
-                elif choice == "6":
-                    self._check_out()
-                elif choice == "7":
-                    print(self.hotel)
-                elif choice == "8":
-                    self._show_guest_statistics()
-                elif choice == "9":
-                    self._show_recent_bookings()
-                elif choice == "0":
-                    print("До свидания!")
-                    break
-                else:
-                    print("Неверный выбор, попробуйте снова.")
-            except ValueError as ve:
-                print(f"Ошибка ввода данных: {ve}")
-            except KeyError as ke:
-                print(f"Ошибка поиска: {ke}")
-            except Exception as e:
-                print(f"Неожиданная ошибка: {e}")
-    
-    def _show_all_capsules(self):
-        """Показать все капсулы"""
-        print("\nВсе капсулы в отеле:")
-        for capsule in sorted(self.hotel.capsules.values()):
-            capsule.display_info()
-    
-    def _show_available_capsules(self):
-        """Показать доступные капсулы"""
-        date_str = input("Введите дату для проверки (ГГГГ-ММ-ДД) или оставьте пустым для сегодня: ")
-        date = datetime.date.today() if not date_str else datetime.date.fromisoformat(date_str)
-        
-        available = self.hotel.get_available_capsules(date)
-        print(f"\nДоступные капсулы на {date}:")
-        for capsule in sorted(available):
-            capsule.display_info()
-    
-    def _register_guest(self):
-        """Зарегистрировать нового гостя"""
-        print("\nРегистрация нового гостя:")
-        name = input("ФИО: ").strip()
-        passport = input("Паспортные данные: ").strip()
-        phone = input("Телефон: ").strip()
-        
-        guest = self.hotel.register_guest(name, passport, phone)
-        print(f"Гость успешно зарегистрирован: {guest}")
-    
-    def _create_booking(self):
-        """Создать бронирование"""
-        print("\nСоздание бронирования:")
-        
-        # Показать гостей
-        print("Список гостей:")
-        for guest in sorted(self.hotel.guests.values()):
-            print(f"{guest.guest_id}. {guest.name}")
-        
-        guest_id = int(input("Введите ID гостя: "))
-        
-        # Показать доступные капсулы
-        date_str = input("Введите дату заезда (ГГГГ-ММ-ДД): ")
-        start_date = datetime.date.fromisoformat(date_str)
-        
-        available = self.hotel.get_available_capsules(start_date)
-        print("Доступные капсулы на выбранную дату:")
-        for capsule in sorted(available):
-            print(f"{capsule.capsule_id}. {capsule.type} - {capsule.price_per_night:.2f} руб./ночь")
-        
-        capsule_id = int(input("Введите ID капсулы: "))
-        
-        # Ввод даты выезда
-        end_date_str = input("Дата выезда (ГГГГ-ММ-ДД): ")
-        end_date = datetime.date.fromisoformat(end_date_str)
-        
-        # Создание бронирования
-        booking = self.hotel.create_booking(guest_id, capsule_id, start_date, end_date)
-        print("\nБронирование создано:")
-        booking.display_info()
-    
-    def _show_all_bookings(self):
-        """Показать все бронирования"""
-        print("\nВсе активные бронирования:")
-        for booking in sorted(self.hotel.bookings.values()):
-            booking.display_info()
-            print()
-    
-    def _check_out(self):
-        """Выселить гостя"""
-        print("\nВыселение гостя:")
-        self._show_all_bookings()
-        
-        booking_id = int(input("Введите ID бронирования для выселения: "))
-        self.hotel.check_out(booking_id)
-        print("Гость успешно выселен, капсула освобождена.")
-    
-    def _show_guest_statistics(self):
-        """Показать статистику по гостям"""
-        print("\nСтатистика по гостям (общая сумма бронирований):")
-        stats = self.hotel.get_guest_statistics()
-        for guest_name, total in sorted(stats.items(), key=lambda x: x[1], reverse=True):
-            print(f"{guest_name}: {total:.2f} руб.")
-    
-    def _show_recent_bookings(self):
-        """Показать последние бронирования"""
-        print("\nПоследние бронирования:")
-        recent = Booking.get_recent_bookings()
-        for booking in recent:
-            booking.display_info()
-            print()
+# Инициализация отеля
+hotel = Hotel("Капсульный отель 'Космос'")
+
+# Состояния для FSM (имитация)
+user_states = {}
+
+# Обработчики команд
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    bot.reply_to(
+        message,
+        "🏨 Добро пожаловать в систему управления капсульным отелем!\n\n"
+        "Доступные команды:\n"
+        "/guests - Список гостей\n"
+        "/register - Зарегистрировать нового гостя\n"
+        "/capsules - Список капсул\n"
+        "/book - Создать бронирование\n"
+        "/bookings - Список бронирований\n"
+        "/checkout - Выселить гостя\n"
+        "/stats - Статистика по гостям\n"
+        "/recent - Последние бронирования"
+    )
 
 
-def main():
-    bot = HotelBot("Капсульный отель 'Космос'")
-    bot.run()
+@bot.message_handler(commands=['guests'])
+def list_guests(message):
+    if not hotel.guests:
+        bot.reply_to(message, "В отеле пока нет гостей.")
+        return
+    
+    response = "📋 Список гостей:\n\n"
+    for guest in sorted(hotel.guests.values(), key=lambda g: g.guest_id):
+        response += f"{guest}\n{guest.display_info()}\n\n"
+    
+    bot.reply_to(message, response)
 
 
-if __name__ == "__main__":
-    main()
+@bot.message_handler(commands=['register'])
+def register_guest_start(message):
+    msg = bot.reply_to(message, "Введите ФИО нового гостя:")
+    bot.register_next_step_handler(msg, process_guest_name)
+
+
+def process_guest_name(message):
+    try:
+        user_states[message.chat.id] = {'name': message.text}
+        msg = bot.reply_to(message, "Введите паспортные данные гостя:")
+        bot.register_next_step_handler(msg, process_guest_passport)
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка: {e}")
+
+
+def process_guest_passport(message):
+    try:
+        user_states[message.chat.id]['passport'] = message.text
+        msg = bot.reply_to(message, "Введите телефон гостя:")
+        bot.register_next_step_handler(msg, process_guest_phone)
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка: {e}")
+
+
+def process_guest_phone(message):
+    try:
+        data = user_states[message.chat.id]
+        data['phone'] = message.text
+        
+        guest = hotel.register_guest(data['name'], data['passport'], data['phone'])
+        bot.reply_to(message, f"✅ Гость успешно зарегистрирован:\n{guest.display_info()}")
+        del user_states[message.chat.id]
+    except ValueError as e:
+        bot.reply_to(message, f"❌ Ошибка: {e}")
+    except Exception as e:
+        bot.reply_to(message, f"❌ Неизвестная ошибка: {e}")
+
+
+@bot.message_handler(commands=['capsules'])
+def list_capsules(message):
+    if not hotel.capsules:
+        bot.reply_to(message, "В отеле пока нет капсул.")
+        return
+    
+    response = "🚪 Список капсул:\n\n"
+    for capsule in sorted(hotel.capsules.values(), key=lambda c: c.capsule_id):
+        response += f"{capsule}\n{capsule.display_info()}\n\n"
+    
+    bot.reply_to(message, response)
+
+
+@bot.message_handler(commands=['book'])
+def book_start(message):
+    if not hotel.guests:
+        bot.reply_to(message, "Для бронирования сначала зарегистрируйте гостя.")
+        return
+    
+    guests_list = "👥 Выберите гостя (введите ID):\n\n"
+    for guest in hotel.guests.values():
+        guests_list += f"{guest.guest_id}. {guest.name}\n"
+    
+    msg = bot.reply_to(message, guests_list)
+    bot.register_next_step_handler(msg, process_booking_guest)
+
+
+def process_booking_guest(message):
+    try:
+        guest_id = int(message.text)
+        if guest_id not in hotel.guests:
+            bot.reply_to(message, "❌ Неверный ID гостя. Попробуйте снова.")
+            return
+        
+        user_states[message.chat.id] = {'guest_id': guest_id}
+        
+        available = hotel.get_available_capsules()
+        if not available:
+            bot.reply_to(message, "❌ Нет доступных капсул для бронирования.")
+            return
+        
+        capsules_list = "🚪 Выберите капсулу (введите ID):\n\n"
+        for capsule in available:
+            capsules_list += f"{capsule.capsule_id}. {capsule.type} - {capsule.price_per_night:.2f} руб./ночь\n"
+        
+        msg = bot.reply_to(message, capsules_list)
+        bot.register_next_step_handler(msg, process_booking_capsule)
+    except ValueError:
+        bot.reply_to(message, "❌ Пожалуйста, введите числовой ID гостя.")
+
+
+def process_booking_capsule(message):
+    try:
+        capsule_id = int(message.text)
+        if capsule_id not in hotel.capsules:
+            bot.reply_to(message, "❌ Неверный ID капсулы. Попробуйте снова.")
+            return
+        
+        user_states[message.chat.id]['capsule_id'] = capsule_id
+        msg = bot.reply_to(message, "📅 Введите дату заезда (в формате ГГГГ-ММ-ДД):")
+        bot.register_next_step_handler(msg, process_booking_start_date)
+    except ValueError:
+        bot.reply_to(message, "❌ Пожалуйста, введите числовой ID капсулы.")
+
+
+def process_booking_start_date(message):
+    try:
+        start_date = datetime.date.fromisoformat(message.text)
+        today = datetime.date.today()
+        
+        if start_date < today:
+            bot.reply_to(message, "❌ Дата заезда не может быть в прошлом. Попробуйте снова.")
+            return
+        
+        user_states[message.chat.id]['start_date'] = start_date
+        msg = bot.reply_to(message, "📅 Введите дату выезда (в формате ГГГГ-ММ-ДД):")
+        bot.register_next_step_handler(msg, process_booking_end_date)
+    except ValueError:
+        bot.reply_to(message, "❌ Неверный формат даты. Используйте ГГГГ-ММ-ДД.")
+
+
+def process_booking_end_date(message):
+    try:
+        end_date = datetime.date.fromisoformat(message.text)
+        data = user_states[message.chat.id]
+        start_date = data['start_date']
+        
+        if end_date <= start_date:
+            bot.reply_to(message, "❌ Дата выезда должна быть позже даты заезда. Попробуйте снова.")
+            return
+        
+        if (end_date - start_date).days > 30:
+            bot.reply_to(message, "❌ Максимальный срок бронирования - 30 дней. Попробуйте снова.")
+            return
+        
+        try:
+            booking = hotel.create_booking(
+                data['guest_id'],
+                data['capsule_id'],
+                start_date,
+                end_date
+            )
+            bot.reply_to(message, f"✅ Бронирование успешно создано!\n{booking.display_info()}")
+            del user_states[message.chat.id]
+        except ValueError as e:
+            bot.reply_to(message, f"❌ Ошибка при создании бронирования: {e}")
+    
+    except ValueError:
+        bot.reply_to(message, "❌ Неверный формат даты. Используйте ГГГГ-ММ-ДД.")
+
+
+@bot.message_handler(commands=['bookings'])
+def list_bookings(message):
+    if not hotel.bookings:
+        bot.reply_to(message, "Нет активных бронирований.")
+        return
+    
+    response = "📋 Список бронирований:\n\n"
+    for booking in sorted(hotel.bookings.values(), key=lambda b: b.booking_id):
+        response += f"{booking}\n{booking.display_info()}\n\n"
+    
+    bot.reply_to(message, response)
+
+
+@bot.message_handler(commands=['checkout'])
+def checkout_start(message):
+    if not hotel.bookings:
+        bot.reply_to(message, "Нет активных бронирований для выселения.")
+        return
+    
+    bookings_list = "📋 Выберите бронирование для выселения (введите ID):\n\n"
+    for booking in hotel.bookings.values():
+        bookings_list += f"{booking.booking_id}. {booking.guest.name} - Капсула #{booking.capsule.capsule_id}\n"
+    
+    msg = bot.reply_to(message, bookings_list)
+    bot.register_next_step_handler(msg, process_check_out)
+
+
+def process_check_out(message):
+    try:
+        booking_id = int(message.text)
+        
+        try:
+            hotel.check_out(booking_id)
+            bot.reply_to(message, f"✅ Гость успешно выселен, капсула освобождена.")
+        except ValueError as e:
+            bot.reply_to(message, f"❌ Ошибка: {e}")
+    
+    except ValueError:
+        bot.reply_to(message, "❌ Пожалуйста, введите числовой ID бронирования.")
+
+
+@bot.message_handler(commands=['stats'])
+def show_stats(message):
+    stats = hotel.get_guest_statistics()
+    if not stats:
+        bot.reply_to(message, "Нет данных для статистики.")
+        return
+    
+    response = "📊 Статистика по гостям (общая сумма бронирований):\n\n"
+    for name, total in sorted(stats.items(), key=lambda item: item[1], reverse=True):
+        response += f"👤 {name}: {total:.2f} руб.\n"
+    
+    bot.reply_to(message, response)
+
+
+@bot.message_handler(commands=['recent'])
+def show_recent_bookings(message):
+    recent = Booking.get_recent_bookings()
+    if not recent:
+        bot.reply_to(message, "Нет данных о последних бронированиях.")
+        return
+    
+    response = "⏳ Последние бронирования:\n\n"
+    for booking in recent:
+        response += f"{booking}\n{booking.display_info()}\n\n"
+    
+    bot.reply_to(message, response)
+
+
+# Запуск бота
+if __name__ == '__main__':
+    print("Бот запущен...")
+    bot.infinity_polling()
