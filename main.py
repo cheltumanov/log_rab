@@ -6,6 +6,13 @@ from abc import ABC, abstractmethod
 import telebot
 from telebot import types
 from dotenv import load_dotenv
+from PyQt5.QtWidgets import QApplication
+from ui.main_window import MainWindow
+import sqlite3
+import sys
+
+
+import sys
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -13,6 +20,47 @@ API_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 
 # Инициализация бота
 bot = telebot.TeleBot(API_TOKEN)
+
+def init_db():
+    conn = sqlite3.connect('hotel.db')
+    cursor = conn.cursor()
+    
+    # Создание таблиц
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS guests (
+        guest_id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        passport TEXT UNIQUE NOT NULL,
+        phone TEXT NOT NULL
+    )
+    ''')
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS capsules (
+        capsule_id INTEGER PRIMARY KEY,
+        type TEXT NOT NULL,
+        price_per_night REAL NOT NULL,
+        is_available INTEGER DEFAULT 1
+    )
+    ''')
+    
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS bookings (
+        booking_id INTEGER PRIMARY KEY,
+        guest_id INTEGER NOT NULL,
+        capsule_id INTEGER NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        is_paid INTEGER DEFAULT 0,
+        FOREIGN KEY (guest_id) REFERENCES guests (guest_id),
+        FOREIGN KEY (capsule_id) REFERENCES capsules (capsule_id)
+    )
+    ''')
+    
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # ==================== ЗАДАНИЕ 1: Обработка исключений ====================
 class HotelBaseError(Exception):
@@ -112,10 +160,20 @@ class Capsule(Entity):
     
     def __init__(self, capsule_id: int, capsule_type: str):
         self.capsule_id = capsule_id
-        self._type = capsule_type  # Защищённый атрибут
+        self._type = capsule_type
         self._price_per_night = self._calculate_price()
         self._is_available = True
         self._current_booking = None
+    
+    def save_to_db(self):
+        conn = sqlite3.connect('hotel.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+        INSERT OR REPLACE INTO capsules (capsule_id, type, price_per_night, is_available)
+        VALUES (?, ?, ?, ?)
+        ''', (self.capsule_id, self._type, self._price_per_night, int(self._is_available)))
+        conn.commit()
+        conn.close()
     
     @property
     def type(self):
@@ -171,7 +229,8 @@ class Guest(BaseGuest):
     _used_passports: Set[str] = set()
     
     def __init__(self, guest_id: int, name: str, passport: str, phone: str):
-        super().__init__(guest_id, name)
+        self.guest_id = guest_id
+        self.name = name
         self.passport = passport
         self.phone = phone
         self.bookings: List['Booking'] = []
@@ -179,6 +238,16 @@ class Guest(BaseGuest):
         if passport in Guest._used_passports:
             raise GuestError("Гость с таким паспортом уже зарегистрирован")
         Guest._used_passports.add(passport)
+    
+    def save_to_db(self):
+        conn = sqlite3.connect('hotel.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+        INSERT OR REPLACE INTO guests (guest_id, name, passport, phone)
+        VALUES (?, ?, ?, ?)
+        ''', (self.guest_id, self.name, self.passport, self.phone))
+        conn.commit()
+        conn.close()
     
     def add_booking(self, booking: 'Booking'):
         self.bookings.append(booking)
@@ -208,6 +277,8 @@ class Booking(Entity):
     """Класс для представления бронирования"""
     _booking_history: Deque['Booking'] = deque(maxlen=1000)
     
+    _booking_history: Deque['Booking'] = deque(maxlen=1000)
+    
     def __init__(self, booking_id: int, guest: Guest, capsule: Capsule, 
                  start_date: datetime.date, end_date: datetime.date):
         if start_date >= end_date:
@@ -224,6 +295,19 @@ class Booking(Entity):
         self.capsule.book(self)
         self.guest.add_booking(self)
         Booking._booking_history.append(self)
+        self.save_to_db()
+    
+    def save_to_db(self):
+        conn = sqlite3.connect('hotel.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+        INSERT OR REPLACE INTO bookings 
+        (booking_id, guest_id, capsule_id, start_date, end_date, is_paid)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ''', (self.booking_id, self.guest.guest_id, self.capsule.capsule_id, 
+              self.start_date.isoformat(), self.end_date.isoformat(), int(self.is_paid)))
+        conn.commit()
+        conn.close()
     
     def _validate_dates(self):
         today = datetime.date.today()
@@ -279,7 +363,54 @@ class Hotel:
         self._next_guest_id = 1
         self._next_capsule_id = 1
         self._next_booking_id = 1
-        self._initialize_sample_data()
+        self._load_from_db()
+    
+    def _load_from_db(self):
+        # Загрузка гостей
+        conn = sqlite3.connect('hotel.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT MAX(guest_id) FROM guests')
+        max_id = cursor.fetchone()[0]
+        self._next_guest_id = max_id + 1 if max_id else 1
+        
+        cursor.execute('SELECT * FROM guests')
+        for row in cursor.fetchall():
+            guest = Guest(row[0], row[1], row[2], row[3])
+            self.guests[guest.guest_id] = guest
+        
+        # Загрузка капсул
+        cursor.execute('SELECT MAX(capsule_id) FROM capsules')
+        max_id = cursor.fetchone()[0]
+        self._next_capsule_id = max_id + 1 if max_id else 1
+        
+        cursor.execute('SELECT * FROM capsules')
+        for row in cursor.fetchall():
+            capsule = Capsule(row[0], row[1])
+            capsule._price_per_night = row[2]
+            capsule._is_available = bool(row[3])
+            self.capsules[capsule.capsule_id] = capsule
+        
+        # Загрузка бронирований
+        cursor.execute('SELECT MAX(booking_id) FROM bookings')
+        max_id = cursor.fetchone()[0]
+        self._next_booking_id = max_id + 1 if max_id else 1
+        
+        cursor.execute('SELECT * FROM bookings')
+        for row in cursor.fetchall():
+            guest = self.guests.get(row[1])
+            capsule = self.capsules.get(row[2])
+            if guest and capsule:
+                start_date = datetime.date.fromisoformat(row[3])
+                end_date = datetime.date.fromisoformat(row[4])
+                booking = Booking(row[0], guest, capsule, start_date, end_date)
+                booking.is_paid = bool(row[5])
+                self.bookings[booking.booking_id] = booking
+                if not booking.is_paid and end_date >= datetime.date.today():
+                    capsule._is_available = False
+                    capsule._current_booking = booking
+        
+        conn.close()
     
     def _initialize_sample_data(self):
         for _ in range(3):
@@ -689,7 +820,19 @@ def demo_vip(message):
     except Exception as e:
         bot.reply_to(message, f"Ошибка: {e}")
 
+def main():
+    app = QApplication(sys.argv)
+    
+    # Применение стилей CSS
+    with open("styles.css", "r") as f:
+        app.setStyleSheet(f.read())
+    
+    window = MainWindow(hotel)
+    window.show()
+    sys.exit(app.exec_())
+
 # Запуск бота
 if __name__ == '__main__':
     print("Бот запущен...")
     bot.infinity_polling()
+    main()
