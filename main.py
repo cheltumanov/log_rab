@@ -10,9 +10,9 @@ from PyQt5.QtWidgets import QApplication
 from ui.main_window import MainWindow
 import sqlite3
 import sys
+import threading
 
 
-import sys
 
 # Загрузка переменных окружения
 load_dotenv()
@@ -355,7 +355,7 @@ class Booking(Entity):
 # ==================== ЗАДАНИЕ 2: Работа с массивами объектов ====================
 class Hotel:
     """Класс для представления отеля"""
-    def __init__(self, name: str):
+    def __init__(self, name: str = "My Hotel"):
         self.name = name
         self.guests: Dict[int, Guest] = {}
         self.capsules: Dict[int, Capsule] = {}
@@ -826,13 +826,16 @@ def main():
     # Применение стилей CSS
     with open("styles.css", "r") as f:
         app.setStyleSheet(f.read())
-    
+    hotel = Hotel()
     window = MainWindow(hotel)
     window.show()
     sys.exit(app.exec_())
 
 # Запуск бота
 if __name__ == '__main__':
-    print("Бот запущен...")
-    bot.infinity_polling()
     main()
+
+def run_bot():
+    bot.infinity_polling()
+
+threading.Thread(target=run_bot, daemon=True).start()

@@ -22,6 +22,7 @@ class MainWindow(QMainWindow):
         
         self.create_tabs()
         self.load_data()
+        print("MainWindow init")
     
     def create_tabs(self):
         self.tabs = QTabWidget()
