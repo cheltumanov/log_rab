@@ -820,7 +820,7 @@ def demo_vip(message):
     except Exception as e:
         bot.reply_to(message, f"Ошибка: {e}")
 
-def main():
+def run_gui():
     app = QApplication(sys.argv)
     
     # Применение стилей CSS
@@ -832,11 +832,18 @@ def main():
     sys.exit(app.exec_())
 
 def run_bot():
-    print("БОт запущен...")
+    print("Бот запущен...")
     bot.infinity_polling()
 
 if __name__ == '__main__':
-    main()
-    run_bot()
+    # Создание потоков для запуска обоих процессов
+    gui_thread = threading.Thread(target=run_gui)
+    bot_thread = threading.Thread(target=run_bot)
 
-threading.Thread(target=run_bot, daemon=True).start()
+    # Запуск потоков
+    gui_thread.start()
+    bot_thread.start()
+
+    # Ожидание завершения потоков (если это необходимо)
+    gui_thread.join()
+    bot_thread.join()
